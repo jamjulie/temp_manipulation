@@ -6,7 +6,7 @@ Welcome, friends! Please go forth and scroll down to begin your journey though m
 [temp_manipulation_markdown.pdf](https://github.com/jamjulie/temp_manipulation/blob/master/temp_manipulation_markdown.pdf) & [temp_manipulation_markdown.html](https://github.com/jamjulie/temp_manipulation/blob/master/temp_manipulation_markdown.html) provide relevant knitted documents in pdf and markdown form, respectively. 
 
 The relevant datasets are: 
-* [HotCold_20180724.csv]()
-* [VOR-Temp manipulation data.xlsx]()
-* [widthHCcombined.xlsx]()
-* [widthSYNcombined.xlsx]()
+* [HotCold_20180724.csv](https://github.com/jamjulie/temp_manipulation/blob/master/HotCold_20180724.csv)
+* [VOR-Temp manipulation data.xlsx](https://github.com/jamjulie/temp_manipulation/blob/master/VOR-Temp%20manipulation%20data.xlsx)
+* [widthHCcombined.xlsx](https://github.com/jamjulie/temp_manipulation/blob/master/widthHCcombined.xlsx)
+* [widthSYNcombined.xlsx](https://github.com/jamjulie/temp_manipulation/blob/master/widthSYNcombined.xlsx)
