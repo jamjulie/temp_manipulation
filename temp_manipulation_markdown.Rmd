@@ -3,13 +3,13 @@ title: "Temperature-induced Physiological Heterokairy in *Agalychnis callidryas*
 author: "Julie Jung"
 date: "May 2, 2018"
 output:
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
   html_document:
     toc: yes
     toc_depth: 4
     toc_float: yes
-  pdf_document:
-    toc: yes
-    toc_depth: '4'
 editor_options:
   chunk_output_type: console
 ---
@@ -71,9 +71,8 @@ library("multcomp")
 library("car")
 ```
 
-```{r global_options, include=FALSE}
-knitr::opts_chunk$set(fig.width=7, fig.height=5, fig.path='Figs/',
-                      echo=TRUE, warning=FALSE, message=FALSE)
+```{r global_options}
+knitr::opts_chunk$set(fig.width=7, fig.height=5, fig.path='Figs/', echo=TRUE, warning=FALSE, message=FALSE)
 ```
 
 ## Part I : VOR and MCH appear concurrently in each thermal treatment

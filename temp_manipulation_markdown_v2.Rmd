@@ -1,0 +1,771 @@
+---
+title: "Temperature-induced Physiological Heterokairy in *Agalychnis callidryas*"
+author: "Julie Jung"
+date: "May 25, 2020"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
+  html_document:
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+editor_options:
+  chunk_output_type: console
+---
+
+We manipulated development rate by rearing embryos under three thermal conditions (warm, ambient, cool) to assess consistency in the matched onset of VOR and hatching responses to simulated attack cues. 
+
+Then, we employed confocal microscopy of whole otic capsules of embryos preserved just before and after the onset of MCH (about 3 h apart), visualizing F-actin and synapsin. 
+
+We predict that VOR and MCH will appear concurrently in each thermal treatment. We also believe that several morphometrics of inner ears, including abundance and density of stereociliary bundles and their synaptic connections, will increase across hatching onset. 
+
+```{r set_wd, include=F}
+rm(list=ls()) #clear environment
+setwd('/Users/juliejung/Documents/GitHub/temp_manipulation') #set working directory
+```
+
+```{r mode, include=F}
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+```
+
+```{r load_packages, include=F}
+library("xlsx")
+library("stargazer")
+library("knitr")
+library("dplyr")
+library("curl")
+library("sciplot")
+library("ggplot2")
+library("MASS")
+library("multcomp")
+library("car")
+```
+
+```{r global_options}
+knitr::opts_chunk$set(fig.width=7, fig.height=5, fig.path='Figs/', echo=TRUE, warning=FALSE, message=FALSE)
+```
+
+## Part I : VOR and MCH appear concurrently in each thermal treatment
+
+```{r VORreadin}
+data<-read.csv(file="HotCold_20180724.csv")
+```
+Now let's look at the structure of our data, make sure the variables are defined as we want them to be defined, and find the average of counts from my two undergraduate mentees, Kaylee and Avital. 
+
+```{r DefineVariables, echo=T, results='hide', warning=FALSE}
+data$Objective<-as.factor(data$Objective)
+data$HatchingState<-as.factor(data$HatchingState)
+data$Clutch<-as.factor(data$Clutch)
+
+data$average_N_hair_cells <- rowMeans(data[c('Kaylee_N_hair_cells', 'Avital_N_hair_cells')], na.rm=TRUE)
+data$avg_total_N_hair_cells <- rowMeans(data[c('Avital_Total_N_of_hair_cells', 'Kaylee_Total_N_of_hair_cells')], na.rm=TRUE)
+data$Average_HC_to_HC_surface_area <- rowMeans(data[c('Avital_HC_to_HC_surface_area', 'Kaylee_HC_to_HC_surface_area')], na.rm=TRUE)
+data$Average_HC_surface_area <- rowMeans(data[c('Avital_HC_surface_area', 'Kaylee_HC_surface_area')], na.rm=TRUE)
+data$average_N_synapses <- rowMeans(data[c('Avital_N_synapses', 'Julie_N_synapses', 'Kaylee_N_synapses')], na.rm=TRUE)
+```
+
+Here let's subset the data by treatment:
+```{r Subsets}
+Hot<- subset(data, Temperature=="Hot", na.rm=TRUE)
+Cold<- subset(data, Temperature=="Cold", na.rm=TRUE)
+
+quantile(Hot$Stage)
+quantile(Cold$Stage)
+```
+
+Find avg stages per temp per age group - 
+```{r StageSummary}
+stage_summary <-
+  data %>%
+  group_by(Temperature, AgeGroup) %>%
+  summarize(count = n(),
+            mean = mean(Stage, na.rm=TRUE),
+            SD = sd(Stage, na.rm=TRUE), 
+            SE = sd(Stage, na.rm=TRUE)/sqrt(n())
+            )
+kable(stage_summary,title="Mean & SD & SE", digits=3)
+```
+
+VOR in all the extra tads measured also : 
+
+```{r ExtraTads}
+allVORdata<-read.xlsx(file="VOR-Temp manipulation data.xlsx", sheetName="colors")
+
+nonNAs<-subset(allVORdata, (!is.na(allVORdata[,21])))
+
+VOR_summary <-
+  nonNAs %>%
+  group_by(treatment, hatched) %>%
+  summarize(count = n(),
+            mean = mean(Corrected.Avg, na.rm=T),
+            SD = sd(Corrected.Avg, na.rm=T), 
+            SE = sd(Corrected.Avg, na.rm=T)/sqrt(n())
+            )
+kable(VOR_summary,title="Mean & SD & SE", digits=3)
+```
+
+```{r ExtraTadsSummary}
+VOR_summary_cold<-VOR_summary[c(1,2),]
+VOR_summary_hot<-VOR_summary[c(3,4),]
+```
+
+```{r PlotVOR}
+ggplot(data=VOR_summary, aes(x=hatched, y=mean), color="Temperature") + 
+  geom_point(data=VOR_summary_cold, size=3, color="dodgerblue2") +
+  geom_errorbar(data=VOR_summary_cold, aes(ymin=mean-SE, ymax=mean+SE), color="dodgerblue2", width=0.05)+
+  geom_point(data=VOR_summary_hot, size=3, color="red") +
+  geom_errorbar(data=VOR_summary_hot, aes(ymin=mean-SE, ymax=mean+SE), color="red", width=0.05)+
+  theme_bw(20)+
+      theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())+
+  ylab("\n VOR amplitude (°)")+
+  xlab("Hatched?")
+```
+
+## Part II : Compare HC depths/widths between younger and older
+
+### Read in HC data & summarize in a table
+
+Next, we want to read in the relevant datafile. 
+
+```{r HCsReadin}
+HC_cold_younger<-read.xlsx(file="widthHCcombined.xlsx", sheetName="ColdYounger")
+HC_cold_older<-read.xlsx(file="widthHCcombined.xlsx", sheetName="ColdOlder")
+HC_hot_younger<-read.xlsx(file="widthHCcombined.xlsx", sheetName="HotYounger")
+HC_hot_older<-read.xlsx(file="widthHCcombined.xlsx", sheetName="HotOlder")
+```
+
+Add a column for Treatment at the end of each dataframe
+```{r AddTreatmentColumns}
+HC_cold_younger$Temperature<-"Cold"
+HC_cold_older$Temperature<-"Cold"
+HC_hot_younger$Temperature<-"Hot"
+HC_hot_older$Temperature<-"Hot"
+
+HC_cold_younger$AgeGroup<-"Younger"
+HC_cold_older$AgeGroup<-"Older"
+HC_hot_younger$AgeGroup<-"Younger"
+HC_hot_older$AgeGroup<-"Older"
+```
+
+Let's combine the dataframes into 1 comprehensive one!
+```{r CombineDFs}
+HC_depth_combined<- rbind(HC_cold_younger, HC_cold_older, HC_hot_younger, HC_hot_older)
+```
+
+```{r SummarizeHCs}
+HC_depth_summary <-
+  HC_depth_combined %>%
+  group_by(Temperature, AgeGroup) %>%
+  summarize(count = n(),
+            mean = mean(HC_width_in_um, na.rm=TRUE),
+            SD = sd(HC_width_in_um, na.rm=TRUE), 
+            SE = sd(HC_width_in_um, na.rm=TRUE)/sqrt(n())
+            )
+kable(HC_depth_summary,title="Mean & SD & SE", digits=3)
+```
+
+```{r MeanHCWidth}
+mean(HC_depth_summary$mean) #why we measured HCs every 8um
+```
+
+### Plotting hair widths/depths
+
+Make a plot for the hot and cold temps:
+```{r PlotHCwidth}
+HC_depth_summary$AgeGroup <- ordered(HC_depth_summary$AgeGroup, levels=c("Younger", "Older"))
+Cold_HC_depth_summary<-HC_depth_summary[1:2,]
+Cold_HC_depth_summary$AgeGroup <- ordered(Cold_HC_depth_summary$AgeGroup, levels=c("Younger", "Older"))
+Hot_HC_depth_summary<-HC_depth_summary[3:4,]
+Hot_HC_depth_summary$AgeGroup <- ordered(Hot_HC_depth_summary$AgeGroup, levels=c("Younger", "Older"))
+
+ggplot(data=HC_depth_summary, aes(x=AgeGroup, y=mean), color="Temperature") + 
+  geom_point(data=Cold_HC_depth_summary, size=3, color="blue") +
+  geom_errorbar(data=Cold_HC_depth_summary, aes(ymin=mean-SE, ymax=mean+SE), color="blue", width=0.05)+
+  geom_point(data=Hot_HC_depth_summary, size=3, color="red") +
+  geom_errorbar(data=Hot_HC_depth_summary, aes(ymin=mean-SE, ymax=mean+SE), color="red", width=0.05)+
+  theme_bw(20)+
+        theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())+
+  ylab("Hair Cell Width (µm)\n")+
+  xlab("\n Age Group")
+```
+
+### Stats for significant differences between younger and older (in hot and cold dataset)
+```{r ColdHCwidthStats}
+hist(HC_depth_combined$HC_width_in_um) #nonnormal
+shapiro.test(HC_depth_combined$HC_width_in_um) #nonnormal
+
+hist(log(HC_depth_combined$HC_width_in_um)) #normal?
+shapiro.test(log(HC_depth_combined$HC_width_in_um))
+
+hist(HC_cold_younger$HC_width_in_um)
+hist(HC_cold_older$HC_width_in_um)
+var.test(HC_cold_younger$HC_width_in_um, HC_cold_older$HC_width_in_um) # equal variances
+t.test(HC_cold_younger$HC_width_in_um, HC_cold_older$HC_width_in_um, alternative=c("two.sided"), paired=FALSE, var.equal=TRUE, conf.level=0.95)
+```
+Significant difference between cold-younger and cold-older. 
+
+```{r HotHCwidthStats}
+hist(HC_hot_younger$HC_width_in_um)
+hist(HC_hot_older$HC_width_in_um)
+var.test(HC_hot_younger$HC_width_in_um, HC_hot_older$HC_width_in_um) # equal variances
+t.test(HC_hot_younger$HC_width_in_um, HC_hot_older$HC_width_in_um, alternative=c("two.sided"), paired=FALSE, var.equal=TRUE, conf.level=0.95)
+```
+Significant difference between hot-younger and hot-older. 
+
+### Significant differences between younger in hot and cold?
+
+```{r MoreHCStats}
+var.test(HC_hot_younger$HC_width_in_um, HC_cold_younger$HC_width_in_um) #equal variances
+t.test(HC_hot_younger$HC_width_in_um, HC_cold_younger$HC_width_in_um, alternative=c("two.sided"), paired=FALSE, var.equal=TRUE, conf.level=0.95)
+```
+Significant difference between hot-younger and cold-younger. 
+
+```{r EvenMoreHCStats}
+var.test(HC_hot_older$HC_width_in_um, HC_cold_older$HC_width_in_um) #unequal variances
+t.test(HC_hot_older$HC_width_in_um, HC_cold_older$HC_width_in_um, alternative=c("two.sided"), paired=FALSE, var.equal=FALSE, conf.level=0.95)
+```
+Significant difference between hot-older and cold-older. 
+
+## Part III : Compare SYN depths/widths between younger and older
+
+### Read in SYN data & summarize in a table
+
+Next, we want to read in the relevant datafile. 
+
+```{r SYNsReadIn}
+SYN_cold_younger<-read.xlsx(file="widthSYNcombined.xlsx", sheetName="ColdYounger")
+SYN_cold_older<-read.xlsx(file="widthSYNcombined.xlsx", sheetName="ColdOlder")
+SYN_hot_younger<-read.xlsx(file="widthSYNcombined.xlsx", sheetName="HotYounger")
+SYN_hot_older<-read.xlsx(file="widthSYNcombined.xlsx", sheetName="HotOlder")
+```
+Don't include the Puncta results - i.e. only include columns A-E
+```{r DiscardPuncta}
+SYN_cold_younger<-SYN_cold_younger[,1:5]
+SYN_cold_older<-SYN_cold_older[,1:5]
+SYN_hot_younger<-SYN_hot_younger[,1:5]
+SYN_hot_older<-SYN_hot_older[,1:5]
+```
+
+Add a column for Treatment at the end of each dataframe
+```{r AddTreatmentCol}
+SYN_cold_younger$Temperature<-"Cold"
+SYN_cold_older$Temperature<-"Cold"
+SYN_hot_younger$Temperature<-"Hot"
+SYN_hot_older$Temperature<-"Hot"
+
+SYN_cold_younger$AgeGroup<-"Younger"
+SYN_cold_older$AgeGroup<-"Older"
+SYN_hot_younger$AgeGroup<-"Younger"
+SYN_hot_older$AgeGroup<-"Older"
+```
+
+Let's combine the dataframes into 1 comprehensive one!
+```{r combineDFs}
+SYN_depth_combined<- rbind(SYN_cold_younger, SYN_cold_older, SYN_hot_younger, SYN_hot_older)
+```
+
+```{r SummarizeSYNdepths}
+SYN_depth_summary <-
+  SYN_depth_combined %>%
+  group_by(Temperature, AgeGroup) %>%
+  summarize(count = n(),
+            mean = mean(SYN_width_in_um, na.rm=TRUE),
+            SD = sd(SYN_width_in_um, na.rm=TRUE), 
+            SE = sd(SYN_width_in_um, na.rm=TRUE)/sqrt(n())
+            )
+kable(SYN_depth_summary,title="Mean & SD & SE", digits=3)
+```
+
+```{r meanSYNdepth}
+mean(SYN_depth_summary$mean) #why we measured synapses every 4um
+```
+
+### Plotting SYN widths/depths
+
+Make a plot for the hot and cold temps:
+```{r plotSYNs}
+Hot_Cold_SYN_depth_summary<-SYN_depth_summary[1:4,]
+Hot_Cold_SYN_depth_summary$AgeGroup <- ordered(Hot_Cold_SYN_depth_summary$AgeGroup, levels=c("Younger", "Older"))
+Cold_SYN_depth_summary<-SYN_depth_summary[1:2,]
+Cold_SYN_depth_summary$AgeGroup <- ordered(Cold_SYN_depth_summary$AgeGroup, levels=c("Younger", "Older"))
+Hot_SYN_depth_summary<-SYN_depth_summary[3:4,]
+Hot_SYN_depth_summary$AgeGroup <- ordered(Hot_SYN_depth_summary$AgeGroup, levels=c("Younger", "Older"))
+
+ggplot(data=Hot_Cold_SYN_depth_summary, aes(x=AgeGroup, y=mean), color="Temperature") + 
+  geom_point(data=Cold_SYN_depth_summary, size=3, color="blue") +
+  geom_errorbar(data=Cold_SYN_depth_summary, aes(ymin=mean-SE, ymax=mean+SE), color="blue", width=0.05)+
+  geom_point(data=Hot_SYN_depth_summary, size=3, color="red") +
+  geom_errorbar(data=Hot_SYN_depth_summary, aes(ymin=mean-SE, ymax=mean+SE), color="red", width=0.05)+
+  theme_bw(20)+
+          theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())+
+  ylab("Synapse Width (µm)\n")+
+  xlab("\n Age Group")
+```
+
+### Stats for significant differences between younger and older (in hot and cold dataset)
+```{r ColdSYNstats}
+hist(SYN_depth_combined$SYN_width_in_um) #normal
+hist(SYN_cold_younger$SYN_width_in_um)
+hist(SYN_cold_older$SYN_width_in_um)
+var.test(SYN_cold_younger$SYN_width_in_um, SYN_cold_older$SYN_width_in_um) # equal variances
+t.test(SYN_cold_younger$SYN_width_in_um, SYN_cold_older$SYN_width_in_um, alternative=c("two.sided"), paired=FALSE, var.equal=TRUE, conf.level=0.95)
+```
+No significant difference between cold-younger and cold-older. 
+
+```{r HotSYNstats}
+hist(SYN_hot_younger$SYN_width_in_um)
+hist(SYN_hot_older$SYN_width_in_um)
+var.test(SYN_hot_younger$SYN_width_in_um, SYN_hot_older$SYN_width_in_um) # unequal
+t.test(SYN_hot_younger$SYN_width_in_um, SYN_hot_older$SYN_width_in_um, alternative=c("two.sided"), paired=FALSE, var.equal=FALSE, conf.level=0.95)
+```
+Significant difference between hot-younger and hot-older. 
+
+### Significant differences between younger in hot and cold?
+
+```{r MoreSYNstats}
+var.test(SYN_hot_younger$SYN_width_in_um, SYN_cold_younger$SYN_width_in_um) #unequal variances
+t.test(SYN_hot_younger$SYN_width_in_um, SYN_cold_younger$SYN_width_in_um, alternative=c("two.sided"), paired=FALSE, var.equal=FALSE, conf.level=0.95)
+```
+NO significant difference between hot-younger and cold-younger. 
+
+```{r EvenMoreSYNstats}
+var.test(SYN_hot_older$SYN_width_in_um, SYN_cold_older$SYN_width_in_um) #barely equal variances
+t.test(SYN_hot_older$SYN_width_in_um, SYN_cold_older$SYN_width_in_um, alternative=c("two.sided"), paired=FALSE, var.equal=TRUE, conf.level=0.95)
+```
+YES significant difference between hot-older and cold-older. 
+
+## Part IV : Number of Hair Cells
+
+### N of hair cells per scan
+
+Here we'll calculate the AVERAGE TOTAL number of hair cells per SCAN per age per treatment (so total # HCs in scan/surface NOT avg per slice per scan).
+
+```{r}
+Hot_total <- Hot[!is.na(Hot$avg_total_N_hair_cells),]
+
+total_hot_summary <-
+  Hot_total %>%
+  group_by(HatchingState) %>%
+  summarize(count = n(),
+            mean = mean(avg_total_N_hair_cells, na.rm=TRUE),
+            SD = sd(avg_total_N_hair_cells, na.rm=TRUE),
+            SE = sd(avg_total_N_hair_cells, na.rm=TRUE)/sqrt(n())
+            )
+total_hot_summary$Temperature <- "Hot"
+kable(total_hot_summary,title="Mean & SD & SE", digits=3)
+```
+
+```{r}
+Cold_total <- Cold[!is.na(Cold$avg_total_N_hair_cells),]
+
+total_cold_summary <-
+  Cold_total %>%
+  group_by(HatchingState) %>%
+  summarize(count = n(),
+            mean = mean(avg_total_N_hair_cells, na.rm=TRUE),
+            SD = sd(avg_total_N_hair_cells, na.rm=TRUE),
+            SE = sd(avg_total_N_hair_cells, na.rm=TRUE)/sqrt(n())
+            )
+total_cold_summary$Temperature <- "Cold"
+kable(total_cold_summary,title="Mean & SD & SE", digits=3)
+```
+
+### N of hair cells per ear
+
+Here we'll calculate the AVERAGE number of hair cells per EAR per age per treatment (so we'll sum up the total # HCs in each scan in each ear). 
+
+First combine the Individual and ear columns to create an individual identifier for each ear. 
+
+```{r}
+totals_combined <- rbind(Cold_total, Hot_total)
+```
+The above includes the total HC count per SCAN. 
+
+```{r}
+totals_combined$ear <- paste(totals_combined$Individual,totals_combined$Which_ear)
+```
+
+Create a table summary of statistics that combines multiple scans for each ear. 
+```{r}
+total_HC_by_ear_summary <-
+  totals_combined %>%
+  group_by(ear) %>%
+  summarize(count = n(),
+            mean = mean(avg_total_N_hair_cells, na.rm=TRUE),
+            SD = sd(avg_total_N_hair_cells, na.rm=TRUE),
+            SE = sd(avg_total_N_hair_cells, na.rm=TRUE)/sqrt(n())
+            )
+
+kable(total_HC_by_ear_summary,title="Mean & SD & SE", digits=3)
+```
+
+I want to split this table by temperature treatment (and age group within that). 
+
+These are the cold treated ears: 
+```{r}
+Cold_total$ear <- paste(Cold_total$Individual,Cold_total$Which_ear)
+cold_HC_by_ear_summary <-
+  Cold_total %>%
+  group_by(HatchingState, ear, Clutch, Stage) %>% #show these variables
+  summarize(count = n(),
+            mean = mean(avg_total_N_hair_cells, na.rm=TRUE),
+            SD = sd(avg_total_N_hair_cells, na.rm=TRUE), 
+            SE = sd(avg_total_N_hair_cells, na.rm=TRUE)/sqrt(n())
+            )
+cold_HC_by_ear_summary$Temperature <- "Cold"
+kable(cold_HC_by_ear_summary,title="Mean & SD & SE", digits=3)
+```
+
+These are the hot treated ears: 
+```{r}
+Hot_total$ear <- paste(Hot_total$Individual,Hot_total$Which_ear)
+hot_HC_by_ear_summary <-
+  Hot_total %>%
+  group_by(HatchingState, ear, Clutch, Stage) %>% #show these variables
+  summarize(count = n(),
+            mean = mean(avg_total_N_hair_cells, na.rm=TRUE),
+            SD = sd(avg_total_N_hair_cells, na.rm=TRUE), 
+            SE = sd(avg_total_N_hair_cells, na.rm=TRUE)/sqrt(n())
+            )
+hot_HC_by_ear_summary$Temperature <- "Hot"
+kable(hot_HC_by_ear_summary,title="Mean & SD & SE", digits=3)
+```
+
+Let's combine the hot/cold tables into 1 comprehensive one!
+```{r}
+hotcold_HC_by_ear<- rbind(hot_HC_by_ear_summary, cold_HC_by_ear_summary)
+kable(hotcold_HC_by_ear,title="Mean & SD & SE", digits=3)
+```
+
+```{r}
+hotcold_HC_by_ear$totalHCperEar <- hotcold_HC_by_ear$mean
+hotcold_by_ear_summary <-
+  hotcold_HC_by_ear %>%
+  group_by(Temperature, HatchingState) %>% #show these variables
+  summarize(count = n(),
+            mean = mean(totalHCperEar),
+            SD = sd(totalHCperEar), 
+            SE = sd(totalHCperEar)/sqrt(n())
+            )
+```
+
+Print table:
+```{r}
+kable(hotcold_by_ear_summary,title="Mean & SD & SE", digits=3)
+```
+
+### Plotting number of HCs per ear 
+
+The following code creates our figure:
+```{r}
+ggplot(data=hotcold_by_ear_summary, aes(x=HatchingState, y=mean, colour=Temperature)) +
+  theme_bw(20)+
+          theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())+
+  geom_point(size=3) +
+  scale_colour_manual(values = c("blue", "red")) +
+  theme(legend.position="none") +
+  geom_errorbar(data=hotcold_by_ear_summary, aes(ymin=mean-SE, ymax=mean+SE), width=0.05)+
+  ylab("# Hair Cells Per Ear \n")+
+  xlab("\n Age Group")
+```
+
+### Stats for HC abundance by temps: 
+```{r}
+hot_HC_by_ear<-subset(hotcold_HC_by_ear, Temperature=="Hot")
+cold_HC_by_ear<-subset(hotcold_HC_by_ear, Temperature=="Cold")
+
+noH_hot_HC_by_ear<-subset(hot_HC_by_ear, HatchingState==0)
+yesH_hot_HC_by_ear<-subset(hot_HC_by_ear, HatchingState==1)
+
+t.test(noH_hot_HC_by_ear$totalHCperEar, yesH_hot_HC_by_ear$totalHCperEar, alternative=c("two.sided"), paired=FALSE, var.equal=FALSE, conf.level=0.95)
+
+noH_cold_HC_by_ear<-subset(cold_HC_by_ear, HatchingState==0)
+YesH_cold_HC_by_ear<-subset(cold_HC_by_ear, HatchingState==1)
+
+t.test(noH_cold_HC_by_ear$totalHCperEar, YesH_cold_HC_by_ear$totalHCperEar, alternative=c("two.sided"), paired=FALSE, var.equal=FALSE, conf.level=0.95)
+```
+
+### What is the average stage for younger and older treatments?
+
+```{r}
+stages_summary <-
+  hotcold_HC_by_ear %>%
+  group_by(HatchingState) %>% #show these variables
+  summarize(count = n(),
+            mode = Mode(Stage), 
+            mean = mean(Stage),
+            SD = sd(Stage), 
+            SE = sd(Stage)/sqrt(n())
+            )
+kable(stages_summary,title="Mean & SD & SE", digits=3)
+```
+
+The modal stage for younger group is 27 and the modal stage for the older group is 28.
+
+## Part V: HC Surface Area
+
+First we want to get a value per scan of the HC surface area. 
+
+### Summarize the data
+
+Here we'll create a table summary of statistics for HC surface area for each age category, grouped by stimulus treatment. We use the {dplyr} package to summarize our data. 
+
+```{r}
+hot_HCtHC_summary <-
+  Hot %>%
+  group_by(HatchingState) %>%
+  summarize(count = n(),
+            mean = mean(Average_HC_to_HC_surface_area, na.rm=TRUE),
+            SD = sd(Average_HC_to_HC_surface_area, na.rm=TRUE), 
+            SE = sd(Average_HC_to_HC_surface_area, na.rm=TRUE)/sqrt(n())
+            )
+hot_HCtHC_summary$Temperature <- "Hot"
+kable(hot_HCtHC_summary,title="Mean & SD & SE", digits=3)
+
+cold_HCtHC_summary <-
+  Cold %>%
+  group_by(HatchingState) %>%
+  summarize(count = n(),
+            mean = mean(Average_HC_to_HC_surface_area, na.rm=TRUE),
+            SD = sd(Average_HC_to_HC_surface_area, na.rm=TRUE), 
+            SE = sd(Average_HC_to_HC_surface_area, na.rm=TRUE)/sqrt(n())
+            )
+cold_HCtHC_summary$Temperature <- "Cold"
+kable(cold_HCtHC_summary,title="Mean & SD & SE", digits=3)
+```
+
+Let's combine the hot and cold tables into 1 comprehensive one!
+```{r}
+hotcold_HCtHC_summary<- rbind(cold_HCtHC_summary, hot_HCtHC_summary)
+```
+
+### prints table
+
+The following code creates our figure:
+```{r}
+ggplot(data=hotcold_HCtHC_summary, aes(x=HatchingState, y=mean, colour=Temperature)) + 
+  theme_bw(20)+
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())+
+  geom_point(size=3) +
+  scale_colour_manual(values = c("blue", "red")) +
+  theme(legend.position="none") +
+  geom_errorbar(data=hotcold_HCtHC_summary, aes(ymin=mean-SE, ymax=mean+SE), width=0.05)+
+  ylab("HC Surface Area (um^2)\n")+
+  xlab("\n Age Group")
+```
+
+### Summarize the data for
+
+Here we'll create a table summary of statistics for HC surface area for each age category, grouped by stimulus treatment. We use the {dplyr} package to summarize our data. 
+
+```{r}
+hot_HC_SA_summary <-
+  Hot %>%
+  group_by(HatchingState) %>%
+  summarize(count = n(),
+            mean = mean(Average_HC_surface_area, na.rm=TRUE),
+            SD = sd(Average_HC_surface_area, na.rm=TRUE), 
+            SE = sd(Average_HC_surface_area, na.rm=TRUE)/sqrt(n())
+            )
+hot_HC_SA_summary$Temperature <- "Hot"
+kable(hot_HC_SA_summary,title="Mean & SD & SE", digits=3)
+
+cold_HC_SA_summary <-
+  Cold %>%
+  group_by(HatchingState) %>%
+  summarize(count = n(),
+            mean = mean(Average_HC_surface_area, na.rm=TRUE),
+            SD = sd(Average_HC_surface_area, na.rm=TRUE), 
+            SE = sd(Average_HC_surface_area, na.rm=TRUE)/sqrt(n())
+            )
+cold_HC_SA_summary$Temperature <- "Cold"
+kable(cold_HC_SA_summary,title="Mean & SD & SE", digits=3)
+```
+
+Let's combine the tables into 1 comprehensive one for hot/cold data!
+```{r}
+hotcold_HC_SA_summary<- rbind(cold_HC_SA_summary, hot_HC_SA_summary)
+kable(hotcold_HC_SA_summary,title="Mean & SD & SE", digits=3)
+```
+
+The following code creates our figure:
+```{r}
+ggplot(data=hotcold_HC_SA_summary, aes(x=HatchingState, y=mean, colour=Temperature)) + 
+  geom_point(size=3) +
+    theme_bw(20)+
+  scale_colour_manual(values = c("blue", "red")) +
+  theme(legend.position="none") +
+  geom_errorbar(data=hotcold_HC_SA_summary, aes(ymin=mean-SE, ymax=mean+SE), width=0.05)+
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())+
+  ylab("HC Surface Area (um^2)\n")+
+  xlab("\n Age Group")
+```
+
+### Stats for HC surface area by temps: 
+```{r}
+# hot_HC_by_ear<-subset(hotcold_HC_by_ear, Temperature=="Hot")
+# cold_HC_by_ear<-subset(hotcold_HC_by_ear, Temperature=="Cold")
+# 
+# noH_hot_HC_by_ear<-subset(hot_HC_by_ear, HatchingState==0)
+# yesH_hot_HC_by_ear<-subset(hot_HC_by_ear, HatchingState==1)
+# 
+# t.test(noH_hot_HC_by_ear$totalHCperEar, yesH_hot_HC_by_ear$totalHCperEar, alternative=c("two.sided"), paired=FALSE, var.equal=FALSE, conf.level=0.95)
+# 
+# noH_cold_HC_by_ear<-subset(cold_HC_by_ear, HatchingState==0)
+# YesH_cold_HC_by_ear<-subset(cold_HC_by_ear, HatchingState==1)
+# 
+# t.test(noH_cold_HC_by_ear$totalHCperEar, YesH_cold_HC_by_ear$totalHCperEar, alternative=c("two.sided"), paired=FALSE, var.equal=FALSE, conf.level=0.95)
+```
+
+## Part VI: Number of Synapses
+
+### N of synapses per scan
+Here we'll calculate the AVERAGE number of synapses per SCAN per age per treatment (so total # synapses in scan NOT avg per slice per scan).
+
+```{r}
+Hot_SYN_total <- Hot[!is.na(Hot$average_N_synapses),]
+
+total_hot_SYN_summary <-
+  Hot_SYN_total %>%
+  group_by(HatchingState) %>%
+  summarize(count = n(),
+            mean = mean(average_N_synapses, na.rm=TRUE),
+            SD = sd(average_N_synapses, na.rm=TRUE),
+            SE = sd(average_N_synapses, na.rm=TRUE)/sqrt(n())
+            )
+total_hot_SYN_summary$Temperature <- "Hot"
+kable(total_hot_SYN_summary,title="Mean & SD & SE", digits=3)
+
+Cold_SYN_total <- Cold[!is.na(Cold$average_N_synapses),]
+
+total_cold_SYN_summary <-
+  Cold_SYN_total %>%
+  group_by(HatchingState) %>%
+  summarize(count = n(),
+            mean = mean(average_N_synapses, na.rm=TRUE),
+            SD = sd(average_N_synapses, na.rm=TRUE),
+            SE = sd(average_N_synapses, na.rm=TRUE)/sqrt(n())
+            )
+total_cold_SYN_summary$Temperature <- "Cold"
+kable(total_cold_SYN_summary,title="Mean & SD & SE", digits=3)
+
+```
+
+Let's combine the tables into 1 comprehensive one for hot/cold temps!
+```{r}
+hotcold_SYN_by_ear<- rbind(total_hot_SYN_summary, total_cold_SYN_summary)
+kable(hotcold_SYN_by_ear,title="Mean & SD & SE", digits=3)
+```
+
+The following code creates our figure:
+```{r}
+ggplot(data=hotcold_SYN_by_ear, aes(x=HatchingState, y=mean, colour=Temperature)) +
+  theme_bw(20)+
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())+
+  geom_point(size=3) +
+  scale_colour_manual(values = c("blue", "red")) +
+  theme(legend.position="none") +
+  geom_errorbar(data=hotcold_SYN_by_ear, aes(ymin=mean-SE, ymax=mean+SE), width=0.05)+
+  ylab("Number of Synapses")+
+  xlab("Age Group")
+```
+
+### Stats for SYN abundance by temps: 
+
+```{r}
+noH_hot_SYN_by_ear<-subset(Hot_SYN_total, HatchingState==0)
+yesH_hot_SYN_by_ear<-subset(Hot_SYN_total, HatchingState==1)
+
+t.test(noH_hot_SYN_by_ear$average_N_synapses, yesH_hot_SYN_by_ear$average_N_synapses, alternative=c("two.sided"), paired=FALSE, var.equal=FALSE, conf.level=0.95)
+
+noH_cold_SYN_by_ear<-subset(Cold_SYN_total, HatchingState==0)
+yesH_cold_SYN_by_ear<-subset(Cold_SYN_total, HatchingState==1)
+
+t.test(noH_cold_SYN_by_ear$average_N_synapses, yesH_cold_SYN_by_ear$average_N_synapses, alternative=c("two.sided"), paired=FALSE, var.equal=FALSE, conf.level=0.95)
+```
+## Part VII: Number of Synapses via SiCE
+
+### N of synapses per scan via SiCE
+Here we'll calculate the AVERAGE number of synapses per SCAN per age per treatment (so total # synapses in scan NOT avg per slice per scan).
+
+```{r}
+SiCE_Hot_SYN_total <- Hot[!is.na(Hot$Kaylee_SiCE_N_synapses),]
+SiCE_total_hot_SYN_summary <-
+  SiCE_Hot_SYN_total %>%
+  group_by(HatchingState) %>%
+  summarize(count = n(),
+            mean = mean(Kaylee_SiCE_N_synapses, na.rm=TRUE),
+            SD = sd(Kaylee_SiCE_N_synapses, na.rm=TRUE),
+            SE = sd(Kaylee_SiCE_N_synapses, na.rm=TRUE)/sqrt(n())
+            )
+SiCE_total_hot_SYN_summary$Temperature <- "Hot"
+kable(SiCE_total_hot_SYN_summary,title="Mean & SD & SE", digits=3)
+
+SiCE_Cold_SYN_total <- Cold[!is.na(Cold$Kaylee_SiCE_N_synapses),]
+SiCE_total_cold_SYN_summary <-
+  SiCE_Cold_SYN_total %>%
+  group_by(HatchingState) %>%
+  summarize(count = n(),
+            mean = mean(Kaylee_SiCE_N_synapses, na.rm=TRUE),
+            SD = sd(Kaylee_SiCE_N_synapses, na.rm=TRUE),
+            SE = sd(Kaylee_SiCE_N_synapses, na.rm=TRUE)/sqrt(n())
+            )
+SiCE_total_cold_SYN_summary$Temperature <- "Cold"
+kable(SiCE_total_cold_SYN_summary,title="Mean & SD & SE", digits=3)
+```
+
+Let's combine the tables into 1 comprehensive one for hot/cold temps!
+```{r}
+SiCE_hotcold_SYN_by_ear<- rbind(SiCE_total_hot_SYN_summary, SiCE_total_cold_SYN_summary)
+kable(SiCE_hotcold_SYN_by_ear,title="Mean & SD & SE", digits=3)
+```
+
+The following code creates our figure:
+```{r}
+ggplot(data=SiCE_hotcold_SYN_by_ear, aes(x=HatchingState, y=mean, colour=Temperature)) +
+  theme_bw(20)+
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())+
+  geom_point(size=3) +
+  scale_colour_manual(values = c("blue", "red")) +
+  theme(legend.position="none") +
+  geom_errorbar(data=SiCE_hotcold_SYN_by_ear, aes(ymin=mean-SE, ymax=mean+SE), width=0.05)+
+  ylab("Number of Synapses via SiCE")+
+  xlab("Age Group")
+```
+
+### Stats for SYN abundance by temps: 
+
+```{r}
+SiCE_noH_hot_SYN_by_ear<-subset(SiCE_Hot_SYN_total, HatchingState==0)
+SiCE_yesH_hot_SYN_by_ear<-subset(SiCE_Hot_SYN_total, HatchingState==1)
+
+t.test(SiCE_noH_hot_SYN_by_ear$Kaylee_SiCE_N_synapses, SiCE_yesH_hot_SYN_by_ear$Kaylee_SiCE_N_synapses, alternative=c("two.sided"), paired=FALSE, var.equal=FALSE, conf.level=0.95)
+
+SiCE_noH_cold_SYN_by_ear<-subset(SiCE_Cold_SYN_total, HatchingState==0)
+SiCE_yesH_cold_SYN_by_ear<-subset(SiCE_Cold_SYN_total, HatchingState==1)
+
+t.test(SiCE_noH_cold_SYN_by_ear$Kaylee_SiCE_N_synapses, SiCE_yesH_cold_SYN_by_ear$Kaylee_SiCE_N_synapses, alternative=c("two.sided"), paired=FALSE, var.equal=FALSE, conf.level=0.95)
+```
+
+take out the 0s and the super high ones
+```{r}
+hist(data$Kaylee_SiCE_N_synapses)
+hist(Hot$Kaylee_SiCE_N_synapses)
+hist(Cold$Kaylee_SiCE_N_synapses)
+```
+
+# Conclusion
+
+Heterokairy is the concept of changes in the timing of physiological development in an individual (Spicer & Burggren, 2003). Physiological heterokairy is an important form of developmental phenotypic plasticity. Empirical evidence can be demonstrated through the temperature-induced acceleration and delay of inner ear development in red-eyed treefrog embryos. The modification of the developmental sequence of hair cells and synapses in the ears of individual embryos appears to be (or at least contribute to) the basis of hatching plasticity, leading to the predation-risk trade-off across two separtate life stages, the egg and the tadpole. 
